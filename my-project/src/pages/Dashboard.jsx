@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
+const API_BASE = 'http://127.0.0.1:8000';
+
 const Dashboard = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('ask-ai');
@@ -22,10 +24,7 @@ const Dashboard = () => {
         const saved = localStorage.getItem(chatKey);
         return saved ? JSON.parse(saved) : [];
     });
-    const [chatSessions, setChatSessions] = useState(() => {
-        const saved = localStorage.getItem(sessionsKey);
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [chatSessions, setChatSessions] = useState([]);
     const [folders, setFolders] = useState(() => {
         const saved = localStorage.getItem(foldersKey);
         return saved ? JSON.parse(saved) : [{ id: 'default', name: 'General' }];
@@ -46,11 +45,31 @@ const Dashboard = () => {
     const recognitionRef = useRef(null);
     const fileInputRef = useRef(null);
 
-    // Auth check
+    // Auth check & load sessions from backend
     useEffect(() => {
         const token = localStorage.getItem('access_token');
-        if (!token) navigate('/login');
-    }, [navigate]);
+        if (!token) { navigate('/login'); return; }
+        // Fetch chat sessions from backend
+        fetch(`${API_BASE}/chat/sessions?email=${encodeURIComponent(userEmail)}`)
+            .then(res => res.ok ? res.json() : [])
+            .then(sessions => {
+                const mapped = sessions.map(s => ({
+                    id: s.id,
+                    title: s.title,
+                    messages: s.messages.map(m => ({ role: m.role, content: m.content, reactions: {} })),
+                    time: new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    pinned: s.pinned,
+                    folder: s.folder || 'default',
+                }));
+                setChatSessions(mapped);
+                localStorage.setItem(sessionsKey, JSON.stringify(mapped));
+            })
+            .catch(() => {
+                // Fallback to localStorage
+                const saved = localStorage.getItem(sessionsKey);
+                if (saved) setChatSessions(JSON.parse(saved));
+            });
+    }, [navigate, userEmail, sessionsKey]);
 
     // Persist chat & sessions
     useEffect(() => {
@@ -211,37 +230,82 @@ const Dashboard = () => {
     };
 
     // Session management
-    const startNewChat = () => {
+    const startNewChat = async () => {
         if (chatHistory.length > 0) {
             const firstUser = chatHistory.find(m => m.role === 'user');
             const title = firstUser ? firstUser.content.slice(0, 40) + (firstUser.content.length > 40 ? '...' : '') : 'New Chat';
-            setChatSessions(prev => [{
-                id: Date.now(), title, messages: chatHistory,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                pinned: false, folder: 'default',
-            }, ...prev]);
+            try {
+                const res = await fetch(`${API_BASE}/chat/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_email: userEmail,
+                        title,
+                        messages: chatHistory.map(m => ({ role: m.role, content: m.content })),
+                        pinned: false,
+                        folder: 'default',
+                    }),
+                });
+                const saved = await res.json();
+                const newSession = {
+                    id: saved.id,
+                    title: saved.title,
+                    messages: chatHistory,
+                    time: new Date(saved.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    pinned: false,
+                    folder: 'default',
+                };
+                setChatSessions(prev => [newSession, ...prev]);
+            } catch {
+                // Fallback to local-only
+                setChatSessions(prev => [{
+                    id: Date.now(), title, messages: chatHistory,
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    pinned: false, folder: 'default',
+                }, ...prev]);
+            }
         }
         setChatHistory([]);
         setActiveTab('ask-ai');
     };
 
     const loadSession = (session) => { setChatHistory(session.messages); setActiveTab('ask-ai'); };
-    const deleteSession = (id) => setChatSessions(prev => prev.filter(s => s.id !== id));
+    const deleteSession = (id) => {
+        fetch(`${API_BASE}/chat/sessions/${id}`, { method: 'DELETE' }).catch(() => { });
+        setChatSessions(prev => prev.filter(s => s.id !== id));
+    };
 
     // Rename
     const submitRename = (id) => {
         if (!renameText.trim()) { setRenamingId(null); return; }
+        fetch(`${API_BASE}/chat/sessions/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: renameText }),
+        }).catch(() => { });
         setChatSessions(prev => prev.map(s => s.id === id ? { ...s, title: renameText } : s));
         setRenamingId(null); setRenameText('');
     };
 
     // Pin
     const togglePin = (id) => {
+        const session = chatSessions.find(s => s.id === id);
+        const newPinned = session ? !session.pinned : true;
+        fetch(`${API_BASE}/chat/sessions/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pinned: newPinned }),
+        }).catch(() => { });
         setChatSessions(prev => prev.map(s => s.id === id ? { ...s, pinned: !s.pinned } : s));
     };
 
     // Move to folder
     const moveToFolder = (sessionId, folderId) => {
+        fetch(`${API_BASE}/chat/sessions/${sessionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder: folderId }),
+        }).catch(() => { });
         setChatSessions(prev => prev.map(s => s.id === sessionId ? { ...s, folder: folderId } : s));
     };
 
