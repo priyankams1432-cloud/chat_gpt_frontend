@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env.VITE_API_BASE;
 
 const Dashboard = () => {
     const navigate = useNavigate();
@@ -157,7 +157,7 @@ const Dashboard = () => {
         setAiLoading(true);
 
         try {
-            const res = await fetch('http://127.0.0.1:8000/ask', {
+            const res = await fetch(`${API_BASE}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: content, system_prompt: "Assistant" }),
@@ -181,7 +181,7 @@ const Dashboard = () => {
         setChatHistory(prev => prev.slice(0, idx + 1));
         setAiLoading(true);
         try {
-            const res = await fetch('http://127.0.0.1:8000/ask', {
+            const res = await fetch(`${API_BASE}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: userMsg, system_prompt: "Assistant" }),
@@ -205,7 +205,7 @@ const Dashboard = () => {
         setEditText('');
         setAiLoading(true);
         try {
-            const res = await fetch('http://127.0.0.1:8000/ask', {
+            const res = await fetch(`${API_BASE}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: editText, system_prompt: "Assistant" }),
